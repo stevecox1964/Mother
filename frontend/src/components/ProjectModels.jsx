@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api as globalApi } from "../api";
-import { names, cx, Avatar, Field } from "./ui";
+import { names, cx, Avatar, Field, ToolChecklist } from "./ui";
 
 export function ProjectModels({
   settings,
@@ -308,6 +308,18 @@ export function ProjectModels({
                 />
                 Allow tools under this project's folder permissions
               </label>
+              {model.tools_enabled !== false && (
+                <div className="field">
+                  <span>Tools for this model</span>
+                  <ToolChecklist
+                    value={model.tools ?? null}
+                    onChange={(tools) => update({ tools })}
+                  />
+                  <small>
+                    The project's tool list and folder access still apply.
+                  </small>
+                </div>
+              )}
             </div>
           ) : (
             <div className="no-model">

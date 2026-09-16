@@ -357,8 +357,9 @@ def test_tool_budget_and_cancellation_prevent_unbounded_calls(cfg, monkeypatch):
     p = cfg.read()["models"][0]
     with pytest.raises(providers.ProviderError, match="tool limit"):
         providers.complete(p, "system", "prompt", cfg.key(p), tool_runtime=runtime)
-    assert len(posts) == 3 and len(runtime.audit) == 8
-    assert posts[1]["tool_choice"] == "none"
+    assert len(posts) == providers.MAX_REQUESTS and len(runtime.audit) == providers.MAX_TOOL_CALLS
+    # Ten calls per response reach the call budget after four requests; tools are then withdrawn.
+    assert "tool_choice" not in posts[3] and posts[4]["tool_choice"] == "none"
     posts.clear()
     runtime = ModelTools(cfg, cfg.read())
     with pytest.raises(providers.ProviderError, match="Reply stopped"):

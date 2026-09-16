@@ -1,0 +1,165 @@
+ave the following as spec.md. This consolidates the specification and Fable’s review points. I cannot save it directly with the currently available tools.
+
+Private Per-Model Knowledge Test
+Version: 1.2
+Status: Implementation specification; not yet verified against application source.
+
+1. Goal
+Give each participating model a private text file containing unique fictional information. Broadcast a question to all participants and test whether only the model holding the relevant information offers and answers.
+
+The test must measure knowledge-based participation—not routing based on an answer key.
+
+Roles
+User: Approves the workspace, permissions, participant assignments, and test activation.
+Astra: Creates and verifies all test files in a private setup session. Must not participate in test answering, selection, review, or fallback.
+Participants: Fable, Opus, Sonnet, and Haiku.
+Coordinator: Application logic that collects private responses and selects using mechanical validation only.
+Scorer: Separate post-response process that can access the answer key.
+No shell or general code-execution tool is required.
+
+2. Participant Mapping and Permissions
+Initial mapping from the supplied settings snapshot:
+
+| File | Participant profile ID | Authorized model readers | |---|---|---| | fable.txt | critic | critic, chief | | opus.txt | model-1788655096656 | model-1788655096656, chief | | sonnet.txt | model-1788655112389 | model-1788655112389, chief | | haiku.txt | model-1788655134090 | model-1788655134090, chief | | answer-key.json | Not a participant file | chief |
+
+The user may inspect all files.
+
+Requirements:
+
+Authorize using profile IDs, never display names.
+Revalidate this mapping against current settings before activation.
+Every participant and every owner_profile_id must resolve to an existing, enabled profile.
+Deleted or recreated profiles require explicit user-approved reassignment. Do not silently match by name.
+Only the user may change permissions or participant bindings.
+Astra’s profile ID is chief; exclude it from test participant calls.
+Give the scorer answer-key access without exposing that key to the coordinator or participants.
+3. App-Enforced Isolation
+File assignment must be an authorization boundary, not merely a prompt instruction.
+
+Enforce permissions across:
+
+Automatic file-context loading.
+list_files and read_file.
+Search, retrieval, previews, and model-accessible exports.
+Tool arguments and results.
+Conversation history, collaboration messages, and caches.
+For participant profiles:
+
+Expose only authorized files and metadata.
+Deny unauthorized reads even when an exact path is supplied.
+Do not expose unauthorized filenames, snippets, hashes, or existence through distinguishable errors.
+Reject path traversal and symlink escapes.
+Missing or empty assignments must not fall back to broad project access.
+The answer key and setup history must remain outside participant-accessible context.
+
+A shared mount label or an empty file listing does not prove isolation. Verify against populated files and actual outgoing model requests.
+
+4. Private Setup and File-Writing Tools
+Provide a private Astra-only setup session. Its prompts, tool payloads, generated contents, and verification reads must never enter participant test history.
+
+Suggested interfaces
+begin_file(path, format, overwrite=false)
+    -> upload_id
+
+write_chunk(upload_id, chunk_index, content)
+    -> stored_index, byte_count
+
+finalize_file(
+    upload_id,
+    expected_chunk_count,
+    expected_fact_count=null
+)
+    -> path, byte_count, fact_count, version_hash
+Formats:
+
+facts-v1: Participant text files; requires expected_fact_count.
+answer-key-v1: JSON answer key.
+Required behavior
+Write UTF-8 text only within a user-approved workspace.
+Restrict uploads to the authorized setup session.
+Bind upload handles to their authorized session and destination.
+Create parent directories safely within the workspace.
+Refuse overwrites unless explicitly user-approved.
+Use zero-based, contiguous chunk indices.
+Identical chunk retries succeed without duplicating content.
+Conflicting retries for the same index fail.
+Concatenate chunks without inserting characters.
+Validate the assembled document, not individual chunks.
+Reject missing chunks, malformed records, duplicate fact IDs, and incorrect fact counts.
+Keep staged content inaccessible to participants.
+Publish completed files atomically.
+Return metadata, not file contents, from write operations.
+Document chunk and file-size limits.
+Provide cancellation or cleanup for abandoned uploads.
+Provide bounded, paginated reading if a completed file exceeds the existing read_file limit. Pages must identify the same version; changes during verification must be detected.
+
+A hash identifies a saved version. It does not by itself establish completeness or correctness.
+
+5. Dataset Format
+5.1 Participant files: facts-v1
+Each fact is exactly two nonempty lines followed by one blank line:
+
+Fact ID: FAB-0001
+Text: At fictional Station Velorin, the evening inventory seal is named “copper fern”.
+
+Parsing rules:
+
+UTF-8; normalize CRLF and CR line endings to LF.
+Fact ID pattern: ^(FAB|OPU|SON|HAI)-[0-9]{4}$.
+Prefix mapping:
+Fable: FAB
+Opus: OPU
+Sonnet: SON
+Haiku: HAI
+The prefix must match the assigned participant.
+Text: must be followed by nonempty, single-line text.
+No headers, comments, or other lines outside fact blocks.
+Fact IDs must be unique across the dataset.
+Count parsed fact blocks, not substring occurrences of Fact ID:.
+Reject duplicate IDs across files during dataset activation.
+The example above is public and must not become a scored secret.
+
+5.2 Answer key: answer-key-v1
+Required JSON structure:
+
+{
+  "schema_version": "answer-key-v1",
+  "dataset_id": "private-knowledge-001",
+  "files": [
+    {
+      "path": "fable.txt",
+      "owner_profile_id": "critic",
+      "expected_fact_count": 150,
+      "version_hash": "<saved-file-hash>"
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "Q-FAB-0001",
+      "question": "<question text>",
+      "owner_profile_id": "critic",
+      "source_file": "fable.txt",
+      "fact_id": "FAB-0001",
+      "expected_answer": "<answer>",
+      "accepted_variants": [],
+      "phase": "scored"
+    }
+  ]
+}
+The real key must include all participant files.
+
+Validation requirements:
+
+Unique question IDs.
+Valid field types; phase is dry_run or scored.
+Every owner exists, is enabled, and matches the file assignment.
+Every reference resolves to a saved fact.
+File counts and hashes match the saved dataset.
+Astra verifies that the referenced text supports the expected answer.
+Any dataset, binding, or permission change invalidates activation until revalidated.
+5.3 Dataset content
+Suggested default per participant:
+
+150 fictional facts, including distractors.
+20 scored questions.
+2 disposable dry-run questions.

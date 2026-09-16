@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { IconButton, Field, Dialog } from "./ui";
+import { IconButton, Field, Dialog, ToolChecklist } from "./ui";
 
 export function ProjectSettings({ settings, setSettings, fail, api, project }) {
   const [document, setDocument] = useState(null);
@@ -18,6 +18,8 @@ export function ProjectSettings({ settings, setSettings, fail, api, project }) {
     [selected, setSelected] = useState(settings.context_files),
     [filter, setFilter] = useState(""),
     [cap, setCap] = useState(settings.max_context_chars),
+    [access, setAccess] = useState(settings.project_access || "selected"),
+    [tools, setTools] = useState(settings.tools ?? null),
     [status, setStatus] = useState(""),
     [busy, setBusy] = useState(false);
   const load = async () => {
@@ -56,6 +58,8 @@ export function ProjectSettings({ settings, setSettings, fail, api, project }) {
                   project_path: path,
                   context_files: selected,
                   max_context_chars: cap,
+                  project_access: access,
+                  tools,
                 }),
               );
               setStatus("Project setup saved.");
@@ -138,9 +142,9 @@ export function ProjectSettings({ settings, setSettings, fail, api, project }) {
             <h3>One project, different levels of context.</h3>
             <p>
               Selected files go to models with code access on the next message.
-              Board-only models learn from their peers. This version reads
-              source files and proposes changes. Shared /tools and /docs folders
-              are configured separately in System setup.
+              Board-only models learn from their peers. With read/write access,
+              models can create and edit files in the project folder. Shared
+              /tools and /docs folders are configured separately in System setup.
             </p>
           </div>
         </div>
@@ -224,6 +228,26 @@ export function ProjectSettings({ settings, setSettings, fail, api, project }) {
             excluded. Each run records the selected file paths and content
             hashes.
           </p>
+        </div>
+        <div className="project-tools">
+          <Field
+            label="Model access to the project folder"
+            hint="Read/write lets models create and edit text files only inside this project folder. Mother backs up every replaced file in project storage."
+          >
+            <select value={access} onChange={(e) => setAccess(e.target.value)}>
+              <option value="selected">Selected files only (read)</option>
+              <option value="read">All project files (read)</option>
+              <option value="write">All project files (read/write)</option>
+            </select>
+          </Field>
+          <div className="field">
+            <span>Tools allowed in this project</span>
+            <ToolChecklist value={tools} onChange={setTools} />
+            <small>
+              Each model can turn tools off in Models. Write tools also need
+              read/write access.
+            </small>
+          </div>
         </div>
         {status && (
           <p className="success-text" role="status">

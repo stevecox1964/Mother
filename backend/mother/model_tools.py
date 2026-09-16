@@ -1,6 +1,7 @@
 """Read-only model configuration and provider model catalogs."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 import copy
 import json
 import time
@@ -8,7 +9,8 @@ import time
 import requests
 from .config import PROVIDERS
 from .providers import ProviderError
-from .file_tools import FileTools, FILE_TOOL_DEFINITIONS
+from .file_tools import FileTools, FILE_TOOL_DEFINITIONS, WRITE_TOOLS
+from .web_tools import WebTools, WEB_TOOL_DEFINITIONS, KEY_NAME as WEB_KEY_NAME
 
 MODEL_TOOL_DEFINITIONS = [
     {
@@ -231,14 +233,32 @@ def list_models(config, provider, profile_id=None, settings=None, alive=lambda: 
     return redact(result, {key})
 
 
+TOOL_ARGUMENTS = {"get_model_settings": {"profile_id"}, "list_provider_models": {"provider", "profile_id"},
+                  **{t["name"]: set(t["parameters"]["properties"]) for t in [*FILE_TOOL_DEFINITIONS, *WEB_TOOL_DEFINITIONS]}}
+TOOL_NAMES = list(TOOL_ARGUMENTS)
+FILE_TOOL_NAMES = {t["name"] for t in FILE_TOOL_DEFINITIONS}
+WEB_TOOL_NAMES = {t["name"] for t in WEB_TOOL_DEFINITIONS}
+
+
+def tool_allowed(name, settings, profile):
+    """A tool is offered only if the project and the model both allow it (None allows all)."""
+    if name in WRITE_TOOLS and settings.get("project_access") != "write":
+        return False
+    return all(chosen is None or name in chosen for chosen in (settings.get("tools"), profile.get("tools")))
+
+
 class ModelTools:
     definitions = MODEL_TOOL_DEFINITIONS
 
     def __init__(self, config, settings, alive=lambda: True, profile=None):
         self.config, self.settings, self.alive = config, copy.deepcopy(settings), alive
         self.audit, self.cache = [], {}
-        self.files = FileTools(self.settings, profile or {})
-        self.definitions = [*MODEL_TOOL_DEFINITIONS, *FILE_TOOL_DEFINITIONS]
+        profile = profile or {}
+        self.files = FileTools(self.settings, profile, backup_root=Path(config.root) / "backups")
+        self.web = WebTools(config.key({"api_key_env": WEB_KEY_NAME}))
+        # Web tools are offered only once a Browserbase key is saved.
+        self.definitions = [t for t in [*MODEL_TOOL_DEFINITIONS, *FILE_TOOL_DEFINITIONS, *(WEB_TOOL_DEFINITIONS if self.web.key else [])]
+                            if tool_allowed(t["name"], self.settings, profile)]
 
     def execute(self, name, arguments):
         if not self.alive():
@@ -248,7 +268,7 @@ class ModelTools:
                 arguments = json.loads(arguments)
             if not isinstance(arguments, dict):
                 raise ProviderError("Tool arguments must be an object.")
-            allowed = {"get_model_settings": {"profile_id"}, "list_provider_models": {"provider", "profile_id"}, "list_files": {"folder"}, "read_file": {"path"}}.get(name, set())
+            allowed = TOOL_ARGUMENTS.get(name, set())
             if (
                 name not in {t["name"] for t in self.definitions}
                 or set(arguments) - allowed
@@ -271,8 +291,15 @@ class ModelTools:
                     ]
                     if not result["models"]:
                         raise ProviderError("Configured model profile not found.")
-            elif name in ("list_files", "read_file"):
+            elif name in FILE_TOOL_NAMES:
                 result = self.files.execute(name, arguments)
+            elif name in WEB_TOOL_NAMES:
+                result = self.web.execute(name, arguments)
+                # Web pages share the per-completion context budget with file reads.
+                size = len(result.get("content", ""))
+                if self.files.read_chars + size > self.settings.get("max_context_chars", 80000):
+                    raise ProviderError("Reads reached this completion's context limit.")
+                self.files.read_chars += size
             else:
                 provider = arguments.get("provider")
                 if not isinstance(provider, str):
@@ -285,7 +312,8 @@ class ModelTools:
                 result = self.cache[cache_key]
             self.audit.append(
                 {"name": name, "provider": arguments.get("provider"), "ok": True,
-                 **({"path": result["path"], "sha256": result["sha256"]} if name == "read_file" else {})}
+                 **({key: result[key] for key in ("path", "sha256", "created", "backup") if key in result} if name in ("read_file", *WRITE_TOOLS) else {}),
+                 **({key: arguments[key] for key in ("query", "url") if key in arguments} if name in WEB_TOOL_NAMES else {})}
             )
             return result
         except (ProviderError, ValueError, TypeError) as exc:

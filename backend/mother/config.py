@@ -7,6 +7,19 @@ from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import dotenv_values
 from .reused import config_store, provider_profiles
+from .file_tools import FILE_TOOL_DEFINITIONS
+from .web_tools import WEB_TOOL_DEFINITIONS
+
+KNOWN_TOOLS = {"get_model_settings", "list_provider_models", *(t["name"] for t in [*FILE_TOOL_DEFINITIONS, *WEB_TOOL_DEFINITIONS])}
+
+
+def tool_list(value):
+    """None allows every tool; a list allows only the named tools."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(name not in KNOWN_TOOLS for name in value):
+        raise ValueError("Tool lists may contain only known tool names.")
+    return sorted(set(value))
 
 PROVIDERS = {
     "openai": ("OpenAI", "https://api.openai.com/v1", "OPENAI_API_KEY"),
@@ -87,6 +100,7 @@ class Config:
             context_mode="board",
             vision=False,
             tools_enabled=True,
+            tools=None,
             expertise="",
             context_files=None,
             base_url=PROVIDERS[provider][1],
@@ -122,6 +136,7 @@ class Config:
             for k, v in PROVIDERS.items()
         ]
         data["storage_path"] = str(self.root)
+        data["web_key_set"] = bool(self.key({"api_key_env": "BROWSERBASE_API_KEY"}))
         return data
 
     def save(self, raw):
@@ -216,6 +231,7 @@ class Config:
                     enabled=bool(p.get("enabled", True)),
                     vision=bool(p.get("vision", False)),
                     tools_enabled=bool(p.get("tools_enabled", True)),
+                    tools=tool_list(p.get("tools")),
                 )
             )
         chief = str(data.get("chief_id", ""))
@@ -246,6 +262,7 @@ class Config:
             max_context_chars=cap,
             shared_paths={name: shared.get(name, "").strip() for name in ("tools", "docs")},
             project_access=data.get("project_access", "selected"),
+            tools=tool_list(data.get("tools")),
         )
         if result["project_access"] not in ("selected", "read", "write"):
             raise ValueError("Choose selected files, read-only or read/write project access.")

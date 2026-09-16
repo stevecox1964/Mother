@@ -37,6 +37,43 @@ export function Field({ label, children, hint }) {
   );
 }
 
+// Must match KNOWN_TOOLS in backend/mother/config.py.
+export const TOOLS = [
+  ["list_files", "List files"],
+  ["read_file", "Read files"],
+  ["search_files", "Search file text"],
+  ["write_file", "Create and replace files"],
+  ["edit_file", "Edit files"],
+  ["get_model_settings", "Read Mother settings"],
+  ["list_provider_models", "Look up provider models"],
+  ["web_search", "Web search (Browserbase)"],
+  ["web_fetch", "Read web pages (Browserbase)"],
+];
+
+// value null allows every tool; a list allows only the checked tools.
+export function ToolChecklist({ value, onChange }) {
+  const on = (name) => value == null || value.includes(name);
+  return (
+    <div className="tool-checklist">
+      {TOOLS.map(([name, label]) => (
+        <label className="checkbox" key={name}>
+          <input
+            type="checkbox"
+            checked={on(name)}
+            onChange={(e) => {
+              const next = TOOLS.map(([n]) => n).filter((n) =>
+                n === name ? e.target.checked : on(n),
+              );
+              onChange(next.length === TOOLS.length ? null : next);
+            }}
+          />
+          {label} <code>{name}</code>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export function Dialog({ label, onClose, children }) {
   const ref = useRef();
   useEffect(() => {

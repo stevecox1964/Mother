@@ -2003,3 +2003,17 @@ header {
 .timeline {
   overflow-anchor: none;
 }
+.project-tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 30px;
+  margin-top: 25px;
+}
+.tool-checklist {
+  display: grid;
+  gap: 6px;
+}
+.tool-checklist code {
+  color: var(--muted);
+  font-size: 12px;
+}

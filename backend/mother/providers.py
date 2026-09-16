@@ -11,6 +11,11 @@ class ProviderError(RuntimeError):
     pass
 
 
+# Tool budget per completion: enough for read, edit, re-read work, still bounded.
+MAX_REQUESTS = 12
+MAX_TOOL_CALLS = 40
+
+
 def complete(
     profile,
     system,
@@ -141,7 +146,7 @@ def complete(
         tool_protocol.attach(payload, provider, tool_runtime.definitions)
     total_usage, tool_count = {}, 0
     try:
-        for request_index in range(3):
+        for request_index in range(MAX_REQUESTS):
             if not alive():
                 raise ProviderError("Reply stopped.")
             body = _post(endpoint, payload, headers)
@@ -151,9 +156,9 @@ def complete(
             calls = tool_protocol.calls_from(body, provider) if tool_runtime else []
             if not calls:
                 break
-            if request_index == 2 or len(calls) > 32:
+            if request_index == MAX_REQUESTS - 1 or len(calls) > 32:
                 raise ProviderError(
-                    "Model exceeded the read-only tool limit. Try a narrower model question."
+                    "Model exceeded the tool limit. Try a narrower model question."
                 )
             results = []
             for name, arguments, call_id in calls:
@@ -161,7 +166,7 @@ def complete(
                     raise ProviderError("Reply stopped.")
                 result = (
                     tool_runtime.execute(name, arguments)
-                    if tool_count < 8
+                    if tool_count < MAX_TOOL_CALLS
                     else {
                         "error": "Tool limit reached. Answer using the results already provided."
                     }
@@ -169,7 +174,7 @@ def complete(
                 results.append(result)
                 tool_count += 1
             tool_protocol.continue_with_results(payload, provider, body, calls, results)
-            if request_index == 1 or tool_count >= 8:
+            if request_index == MAX_REQUESTS - 2 or tool_count >= MAX_TOOL_CALLS:
                 tool_protocol.finish_without_tools(payload, provider)
         if provider == "openai":
             text = "".join(

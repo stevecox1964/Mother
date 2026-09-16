@@ -33,6 +33,12 @@ export function SystemSetup({ fail, refreshProject }) {
         >
           Shared folders
         </button>
+        <button
+          className={cx(tab === "web" && "selected")}
+          onClick={() => setTab("web")}
+        >
+          Web tools
+        </button>
       </div>
       {tab === "models" ? (
         <ModelSettings
@@ -42,8 +48,10 @@ export function SystemSetup({ fail, refreshProject }) {
           refresh={refresh}
           api={systemApi}
         />
-      ) : (
+      ) : tab === "folders" ? (
         <SharedFolders settings={settings} setSettings={updated} fail={fail} />
+      ) : (
+        <WebToolsSetup settings={settings} refresh={refresh} fail={fail} />
       )}
     </>
   );
@@ -108,6 +116,69 @@ export function SharedFolders({ settings, setSettings, fail }) {
           Shared folders cannot be written through model tools, even if they
           overlap a project folder. The /tools folder contains reference
           material; reading it does not execute its contents.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function WebToolsSetup({ settings, refresh, fail }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="settings-page">
+      <div className="page-heading">
+        <div>
+          <h1>Web tools</h1>
+          <p>
+            Models search the web and read pages through Browserbase. Web
+            requests are paid on your Browserbase account.
+          </p>
+        </div>
+        <button
+          className="primary"
+          disabled={busy || !key}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await globalApi("/credentials", "PUT", {
+                name: "BROWSERBASE_API_KEY",
+                value: key.trim(),
+              });
+              setKey("");
+              await refresh();
+            } catch (e) {
+              fail(e);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : "Save key"}
+        </button>
+      </div>
+      <div className="project-body">
+        <Field
+          label="Browserbase API key"
+          hint={
+            (settings.web_key_set
+              ? "A key is saved. web_search and web_fetch are available."
+              : "No key saved. Web tools stay hidden from models.") +
+            " Stored separately on this machine and never displayed again."
+          }
+        >
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="Paste Browserbase API key"
+          />
+        </Field>
+        <div className="form-note">
+          Web pages are untrusted. A page can contain text that tries to steer a
+          model. Turn web tools off per project or per model in their tool
+          lists.
         </div>
       </div>
     </div>
