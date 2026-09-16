@@ -104,3 +104,7 @@ The dev UI uses port 5174 and proxies `/api` to port 5010. Built assets are serv
 ## Deliberate first-version boundary
 
 Mother is a working discussion and code-inspection harness. Models can propose code, but they cannot execute shell commands or write project files yet. Coding workers, isolated Git worktrees, patch review/application, targeted peer tool calls, archive retrieval tools, streaming tokens, and richer multimodal inputs belong in the next stage.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
