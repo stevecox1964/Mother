@@ -37,7 +37,7 @@ Each conversation has a three-dot menu for **Rename**, **Export transcript**, an
 
 The selected speaker answers first. By default, other models that offered knowledge review sequentially, seeing all accepted additions, and may post only a new finding, correction, alternative, or answer to a specific question. Passes stay silent. Exact duplicate text is suppressed; semantic novelty otherwise depends on the model following the review instructions. Choose **Find a speaker + answer** to skip review, or **Additions + optional answer update** to let the first speaker make a final delta only when peers added something. There is no permanent chief. Selection happens again for every broadcast. A failed or squelched first speaker falls back to another valid offer. If everyone passes or fails, Mother reports that no available model offered an answer rather than inventing consensus.
 
-Knowledge checks use model calls too, capped at the smaller of the profile limit and 4,096 output tokens, without tools. An N-model broadcast uses at most N checks, one answer attempt per candidate (normally one total), one review per remaining candidate, and optionally one update. Reviews and answers can use the existing bounded read-only model tools. Invalid or truncated structured responses are withheld with an error; they are never published as ordinary answers. **Independent opinions** preserves the earlier parallel 1–3-round discussion, and **Direct** produces one reply. Every mode uses bounded recent shared conversation history.
+Knowledge checks use model calls too, capped at the smaller of the profile limit and 4,096 output tokens, without tools. An N-model broadcast uses at most N checks, one answer attempt per candidate (normally one total), one review per remaining candidate, and optionally one update. Reviews and answers can use the bounded model tools described below. Invalid or truncated structured responses are withheld with an error; they are never published as ordinary answers. **Independent opinions** preserves the earlier parallel 1–3-round discussion, and **Direct** produces one reply. Every mode uses bounded recent shared conversation history.
 
 Per-model **Squelch** persists for the conversation, prevents subsequent participation and discards pending output without blocking peers. Unsquelching permits a new knowledge check on the next broadcast; it does not revive a discarded offer. Existing provider requests may still finish and incur charges. **Stop** cancels further stages and discards late responses.
 
@@ -101,9 +101,22 @@ npm.cmd run dev
 
 The dev UI uses port 5174 and proxies `/api` to port 5010. Built assets are served by Flask. `MOTHER_PORT` changes the production port; adjust the Vite proxy if using a different backend port for development. `MOTHER_DATA_DIR` selects a different data directory. Run one server process per data directory because mirror/config writes and restart recovery assume one owner.
 
+## Model tools
+
+Models with tools enabled can use:
+
+- **Files:** `list_files`, `read_file` and `search_files` read text files in `/project` and the shared read-only `/tools` and `/docs` folders.
+- **Writing:** `write_file` and `edit_file` create and change UTF-8 text files, only inside the project folder. Set **Setup → Model access to the project folder** to read/write to allow them. A write must pass the file's current `sha256`, so a model cannot overwrite a change it has not read. Mother saves each replaced file under `backups/` in project storage. Shared folders, `data/`, `.git`, credential files and binary files cannot be written.
+- **Web:** `web_search` and `web_fetch` use the [Browserbase](https://www.browserbase.com/) Search and Fetch APIs. They appear only after a key is saved in **System setup → Web tools**. Pages are limited to 50,000 characters and are treated as untrusted data. Browserbase requests are billed to your Browserbase account.
+- **Settings:** `get_model_settings` and `list_provider_models` read Mother settings (credentials excluded) and provider model catalogs.
+
+Turn tools off for a whole project on the **Setup** page, or for one model on the **Models** page. One reply can make at most 12 provider requests and 40 tool calls. File reads and web pages share the context character limit.
+
+Web content can contain text written to mislead a model. Consider turning off web tools for models that have write access.
+
 ## Deliberate first-version boundary
 
-Mother is a working discussion and code-inspection harness. Models can propose code, but they cannot execute shell commands or write project files yet. Coding workers, isolated Git worktrees, patch review/application, targeted peer tool calls, archive retrieval tools, streaming tokens, and richer multimodal inputs belong in the next stage.
+Mother is a working discussion and coding harness. Models can read and write project files, but they cannot execute shell commands or programs. Coding workers, isolated Git worktrees, patch review, interactive browser sessions, targeted peer tool calls, archive retrieval tools, streaming tokens, and richer multimodal inputs belong in the next stage.
 
 ## License
 
