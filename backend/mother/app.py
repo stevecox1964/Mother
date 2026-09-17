@@ -139,6 +139,23 @@ def create_app(data_dir=None, start_search_worker=False):
             return jsonify(error="Project not found."), 404
         return jsonify(projects.update(pid, body()))
 
+    @app.delete("/api/projects/<pid>")
+    def projects_delete(pid):
+        if not projects.delete(pid):
+            return jsonify(error="Project not found."), 404
+        return jsonify(deleted=True)
+
+    @app.get("/api/projects/deleted")
+    def projects_deleted():
+        return jsonify(store.deleted_projects())
+
+    @app.post("/api/projects/<pid>/restore")
+    def projects_restore(pid):
+        project = projects.restore(pid)
+        if not project:
+            return jsonify(error="Project not found in deleted projects."), 404
+        return jsonify(project)
+
     @app.get("/api/health")
     def health():
         return jsonify(status="ok", name="Mother", version="0.1.0")

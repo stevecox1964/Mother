@@ -94,11 +94,11 @@ class Ensemble:
         )
         writable = runtime and any(t["name"] in WRITE_TOOLS for t in runtime.definitions)
         system += (
-            "You can create and change UTF-8 text files under /project with write_file and edit_file. "
+            "You can create, change and delete UTF-8 text files under /project with write_file, edit_file and delete_file. "
             "Read a file first and pass its sha256; a write fails if the file changed, so read it again and retry. "
-            "Mother backs up each replaced file. Write only what the user asked for, and report each file you changed.\n"
+            "Mother backs up each replaced or deleted file. Write only what the user asked for, and report each file you changed.\n"
             if writable
-            else "You cannot create or edit files.\n"
+            else "You cannot create, edit or delete files.\n"
         )
         if runtime and any(t["name"] == "web_fetch" for t in runtime.definitions):
             system += (

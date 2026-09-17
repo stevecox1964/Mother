@@ -13,6 +13,7 @@ import {
   ChevronDown,
   SlidersHorizontal,
 } from "lucide-react";
+import { useState } from "react";
 import { cx, IconButton } from "./ui";
 
 // Project tree: the selected project is open, the others are collapsed.
@@ -21,6 +22,8 @@ export function Sidebar({
   projects,
   selectProject,
   editProject,
+  deleteProject,
+  openDeletedProjects,
   locked,
   mobile,
   conversations,
@@ -33,6 +36,8 @@ export function Sidebar({
   conversationMenu,
   openConversationMenu,
 }) {
+  // The selected project can be folded without switching projects.
+  const [folded, setFolded] = useState(null);
   const pages = [
     ["settings", "Models", Users],
     ["project", "Setup", SlidersHorizontal],
@@ -47,25 +52,37 @@ export function Sidebar({
       <div className="sidebar-scroll">
         <div className="section-label">
           <span>Projects</span>
-          <IconButton title="New project" onClick={() => editProject()}>
-            <Plus size={16} />
-          </IconButton>
+          <span>
+            <IconButton title="Deleted projects" onClick={openDeletedProjects}>
+              <Trash2 size={14} />
+            </IconButton>
+            <IconButton title="New project" onClick={() => editProject()}>
+              <Plus size={16} />
+            </IconButton>
+          </span>
         </div>
         <div className="tree" aria-label="Projects">
           {projects.map((p) => {
-            const open = p.id === project.id;
+            const selected = p.id === project.id;
+            const open = selected && folded !== p.id;
             return (
               <div key={p.id} className={cx("tree-project", open && "open")}>
-                <div className={cx("tree-row", open && "selected")}>
+                <div className={cx("tree-row", selected && "selected")}>
                   <button
                     aria-expanded={open}
-                    disabled={!open && locked}
+                    disabled={!selected && locked}
                     title={
-                      !open && locked
+                      !selected && locked
                         ? "Wait for the current reply to finish"
                         : p.name
                     }
-                    onClick={() => !open && selectProject(p.id)}
+                    onClick={() => {
+                      if (selected) setFolded(open ? p.id : null);
+                      else {
+                        setFolded(null);
+                        selectProject(p.id);
+                      }
+                    }}
                   >
                     {open ? (
                       <ChevronDown size={15} />
@@ -76,12 +93,25 @@ export function Sidebar({
                     <span className="nav-name">{p.name}</span>
                     {p.is_main && <span className="tree-tag">Main</span>}
                   </button>
-                  {open && !p.is_main && (
+                  {selected && !p.is_main && (
                     <IconButton
                       title="Rename project"
                       onClick={() => editProject(p)}
                     >
                       <Pencil size={13} />
+                    </IconButton>
+                  )}
+                  {selected && !p.is_main && p.id !== "default" && (
+                    <IconButton
+                      title={
+                        locked
+                          ? "Wait for the current reply to finish"
+                          : "Delete project"
+                      }
+                      disabled={locked}
+                      onClick={() => deleteProject(p)}
+                    >
+                      <Trash2 size={13} />
                     </IconButton>
                   )}
                 </div>

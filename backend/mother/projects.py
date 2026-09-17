@@ -45,7 +45,7 @@ class Projects:
             model.update(context_mode="files", context_files=None)
         cfg.save(settings)
         with self.store.connect() as db:
-            db.execute("INSERT INTO projects VALUES (?,?,?,?)", (MOTHER_PROJECT_ID, "Mother", "coding", now()))
+            db.execute("INSERT INTO projects (id,name,type,created_at) VALUES (?,?,?,?)", (MOTHER_PROJECT_ID, "Mother", "coding", now()))
         self.configs[MOTHER_PROJECT_ID] = cfg
 
     def prepare_folders(self, pid):
@@ -110,10 +110,21 @@ class Projects:
         cfg.save(settings)
         row = dict(id=pid, name=name, type=kind, created_at=now())
         with self.lock, self.store.connect() as db:
-            db.execute("INSERT INTO projects VALUES (:id,:name,:type,:created_at)", row)
+            db.execute("INSERT INTO projects (id,name,type,created_at) VALUES (:id,:name,:type,:created_at)", row)
             self.configs[pid] = cfg
         self.prepare_folders(pid)
         return self.public(row)
+
+    def delete(self, pid):
+        if pid in (MOTHER_PROJECT_ID, "default"):
+            raise ValueError("Built-in projects cannot be deleted.")
+        return self.store.delete_project(pid)
+
+    def restore(self, pid):
+        if not self.store.restore_project(pid):
+            return None
+        self.prepare_folders(pid)
+        return self.public(self.store.project(pid))
 
     def update(self, pid, data):
         self.store.project_folder(pid)

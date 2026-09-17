@@ -30,7 +30,14 @@ import { Sidebar } from "./Sidebar";
 import { useConversationActions } from "./ConversationDialogs";
 import { Participants } from "./Participants";
 
-export function App({ project, projects, selectProject, editProject }) {
+export function App({
+  project,
+  projects,
+  selectProject,
+  editProject,
+  deleteProject,
+  openDeletedProjects,
+}) {
   const api = projectApi(project.id);
   const [mode, setMode] = useState("broadcast"),
     [broadcastTargets, setBroadcastTargets] = useState(null),
@@ -61,6 +68,7 @@ export function App({ project, projects, selectProject, editProject }) {
     [participantsOpen, setParticipantsOpen] = useState(false);
   const fileRef = useRef(),
     timeline = useRef(),
+    atBottom = useRef(true),
     selectedRef = useRef(null);
   selectedRef.current = cid;
   const fail = (e) => setError(e.message || String(e));
@@ -328,6 +336,14 @@ export function App({ project, projects, selectProject, editProject }) {
       fail(e);
     }
   };
+  // Follow new posts only while the reader is already at the bottom.
+  useEffect(() => {
+    atBottom.current = true;
+  }, [cid, view]);
+  useEffect(() => {
+    const el = timeline.current;
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
+  }, [events.length, active?.id, view, cid]);
   if (!settings)
     return (
       <div className="loading">
@@ -353,6 +369,8 @@ export function App({ project, projects, selectProject, editProject }) {
         projects={projects}
         selectProject={selectProject}
         editProject={editProject}
+        deleteProject={deleteProject}
+        openDeletedProjects={openDeletedProjects}
         locked={sending || voiceBusy.length > 0}
         mobile={mobile}
         conversations={conversations}
@@ -597,7 +615,15 @@ export function App({ project, projects, selectProject, editProject }) {
                     })}
                   </div>
                 )}
-                <div className="timeline" ref={timeline}>
+                <div
+                  className="timeline"
+                  ref={timeline}
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    atBottom.current =
+                      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                  }}
+                >
                   {!visible.length ? (
                     <div className="empty-board">
                       <div className="empty-icon">

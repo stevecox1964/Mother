@@ -12,13 +12,13 @@ The app is local-only, listening on `127.0.0.1:5010`. There is no Slack, Docker 
 .\.venv\Scripts\python.exe backend\run.py
 ```
 
-Use Ctrl+C to stop a foreground server. For a server started by the launcher, its PID is saved in `data/server.pid`; verify that process before stopping it. `server.log` and `server-error.log` contain startup and error information.
+Use Ctrl+C to stop a foreground server. For a server started by the launcher, its PID is saved in `data/server.pid`; verify that process before stopping it. Running the launcher again stops any Mother server started from this folder, then starts a new one with the current code. If another program uses the port, the launcher stops with an error; close that program or set `MOTHER_PORT`. `server.log` and `server-error.log` contain startup and error information.
 
 ## First conversation
 
 **Mother — Main project** is the built-in home for developing Mother itself. It points to this application's repository and has its own models and conversations. **Mother architecture** opens its project context, including the architecture proposal and saved review. Both documents are initially selected for the Mother project's model context. New unrelated projects start without these documents. The main project opens by default on first use; subsequent project selections are remembered. Existing **Default project** conversations stay in their original project.
 
-The sidebar is a project tree. Each project expands to show **Chat** with its conversations, plus **Models**, **Setup**, **Search** and **Trash** for that project. **System setup** at the bottom covers every project on this machine. Use **Projects → +** to create a project. Choose **Coding**, **Research**, **Writing**, or **General**. Each project gets its own model configuration, workspace folder, saved conversation stack, search results, and Trash. New projects copy the current project's model profiles once and start with no selected files or conversations. Credentials remain shared locally, so you can reuse your provider connections. Switch projects by clicking another project in the tree; Mother remembers the last project and conversation in this browser. The pencil beside the open project edits its name and type.
+The sidebar is a project tree. Each project expands to show **Chat** with its conversations, plus **Models**, **Setup**, **Search** and **Trash** for that project. **System setup** at the bottom covers every project on this machine. Use **Projects → +** to create a project. Choose **Coding**, **Research**, **Writing**, or **General**. Each project gets its own model configuration, workspace folder, saved conversation stack, search results, and Trash. New projects copy the current project's model profiles once and start with no selected files or conversations. Credentials remain shared locally, so you can reuse your provider connections. Switch projects by clicking another project in the tree; Mother remembers the last project and conversation in this browser. The pencil beside the open project edits its name and type. Click the open project's arrow to fold it without switching projects. The trash icon beside **Projects** lists deleted projects.
 
 Existing conversations and settings are assigned to **Default project** automatically. Running replies continue in their original project when you switch projects. **Models & souls** and **Project context** apply to the selected project; message routing always uses the conversation's owning project.
 
@@ -30,6 +30,10 @@ Existing conversations and settings are assigned to **Default project** automati
 The **Try simulated chat** button disables existing profiles and adds three explicitly labeled demo profiles. It calls no external API for those profiles. Re-enable your real profiles and select a real default model when finished with the demo.
 
 Each conversation has a three-dot menu for **Rename**, **Export transcript**, and **Delete**. Delete moves it to **Trash** and removes it from the sidebar and search. Restore it from Trash at any time; its messages and attachments remain on disk. Stop an active reply before deleting its conversation.
+
+The trash icon beside the open project deletes it. Deleting a project removes it from the sidebar; its folder, settings and conversations stay on disk. Restore it from **Projects → Deleted projects**. **Mother** and **Default project** cannot be deleted, and a project with a running reply cannot be deleted until the reply finishes.
+
+The chat scrolls down with new messages only while you are at the bottom, so you can read older messages during a reply.
 
 ## Chat behavior
 
@@ -67,7 +71,7 @@ data/
 
 Project names, types, and conversation ownership are stored in SQLite. Default project's original config, attachments, and conversation mirrors keep their existing locations for compatibility. New projects use the folders above. Project IDs keep folder names stable when a project is renamed. The workspace is created empty; **Project context** can point to an existing source folder instead.
 
-`GET/POST /api/projects` lists or creates projects; `PUT /api/projects/<id>` changes a name or type. Settings, model catalogs, conversation lists/creation, search, and Trash accept `?project_id=<id>` (omitting it selects Default project). Conversation operations resolve the owning project and reject a mismatched explicit project ID. Search indexing uses one shared local worker, with results and progress counts filtered to the selected project.
+`GET/POST /api/projects` lists or creates projects; `PUT /api/projects/<id>` changes a name or type. `DELETE /api/projects/<id>` hides a project, `GET /api/projects/deleted` lists hidden projects, and `POST /api/projects/<id>/restore` brings one back. Settings, model catalogs, conversation lists/creation, search, and Trash accept `?project_id=<id>` (omitting it selects Default project). Conversation operations resolve the owning project and reject a mismatched explicit project ID. Search indexing uses one shared local worker, with results and progress counts filtered to the selected project.
 
 Messages are persisted automatically with UTC millisecond timestamps and an ordered sequence number. SQLite runs in WAL mode. JSONL mirrors are rebuilt atomically per conversation/day after each event and repaired from SQLite at startup. SQLite is the source of truth, so a interrupted mirror write cannot erase the conversation. For large archives, an incremental export worker would avoid rewriting a full conversation/day per event.
 
@@ -106,7 +110,7 @@ The dev UI uses port 5174 and proxies `/api` to port 5010. Built assets are serv
 Models with tools enabled can use:
 
 - **Files:** `list_files`, `read_file` and `search_files` read text files in `/project` and the shared read-only `/tools` and `/docs` folders.
-- **Writing:** `write_file` and `edit_file` create and change UTF-8 text files, only inside the project folder. Set **Setup → Model access to the project folder** to read/write to allow them. A write must pass the file's current `sha256`, so a model cannot overwrite a change it has not read. Mother saves each replaced file under `backups/` in project storage. Shared folders, `data/`, `.git`, credential files and binary files cannot be written.
+- **Writing:** `write_file`, `edit_file` and `delete_file` create, change and delete UTF-8 text files, only inside the project folder. Set **Setup → Model access to the project folder** to read/write to allow them. A write must pass the file's current `sha256`, so a model cannot overwrite a change it has not read. Mother saves each replaced or deleted file under `backups/` in project storage. Shared folders, `data/`, `.git`, credential files and binary files cannot be written.
 - **Web:** `web_search` and `web_fetch` use the [Browserbase](https://www.browserbase.com/) Search and Fetch APIs. They appear only after a key is saved in **System setup → Web tools**. Pages are limited to 50,000 characters and are treated as untrusted data. Browserbase requests are billed to your Browserbase account.
 - **Settings:** `get_model_settings` and `list_provider_models` read Mother settings (credentials excluded) and provider model catalogs.
 

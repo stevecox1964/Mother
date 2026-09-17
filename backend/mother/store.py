@@ -70,13 +70,15 @@ class Store:
             if "deleted_at" not in columns:
                 db.execute("ALTER TABLE conversations ADD COLUMN deleted_at TEXT")
             db.execute(
-                "INSERT OR IGNORE INTO projects VALUES ('default','Default project','general',?)",
+                "INSERT OR IGNORE INTO projects (id,name,type,created_at) VALUES ('default','Default project','general',?)",
                 (now(),),
             )
             if "project_id" not in columns:
                 db.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id)")
                 db.execute("UPDATE conversations SET project_id='default' WHERE project_id IS NULL")
             db.execute("CREATE INDEX IF NOT EXISTS conversation_project ON conversations(project_id)")
+            if "deleted_at" not in {r["name"] for r in db.execute("PRAGMA table_info(projects)")}:
+                db.execute("ALTER TABLE projects ADD COLUMN deleted_at TEXT")
             from .search import initialize_index
 
             initialize_index(db)
@@ -118,12 +120,35 @@ class Store:
 
     def projects(self):
         with self.connect() as db:
-            return [dict(r) for r in db.execute("SELECT * FROM projects ORDER BY created_at,id")]
+            return [dict(r) for r in db.execute("SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY created_at,id")]
 
     def project(self, pid):
+        """Deleted projects are hidden everywhere until restored."""
         with self.connect() as db:
-            row = db.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
+            row = db.execute("SELECT * FROM projects WHERE id=? AND deleted_at IS NULL", (pid,)).fetchone()
             return dict(row) if row else None
+
+    def deleted_projects(self):
+        with self.connect() as db:
+            return [dict(r) for r in db.execute(
+                "SELECT * FROM projects WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")]
+
+    def delete_project(self, pid):
+        with self.lock, self.connect() as db:
+            if db.execute(
+                "SELECT 1 FROM runs JOIN conversations c ON c.id=runs.conversation_id "
+                "WHERE c.project_id=? AND runs.status='running'", (pid,)
+            ).fetchone():
+                raise ValueError("Wait for the current reply to finish before deleting this project.")
+            return db.execute(
+                "UPDATE projects SET deleted_at=? WHERE id=? AND deleted_at IS NULL", (now(), pid)
+            ).rowcount > 0
+
+    def restore_project(self, pid):
+        with self.lock, self.connect() as db:
+            return db.execute(
+                "UPDATE projects SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL", (pid,)
+            ).rowcount > 0
 
     def conversation_project(self, cid):
         with self.connect() as db:

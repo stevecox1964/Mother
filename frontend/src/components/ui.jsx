@@ -44,6 +44,7 @@ export const TOOLS = [
   ["search_files", "Search file text"],
   ["write_file", "Create and replace files"],
   ["edit_file", "Edit files"],
+  ["delete_file", "Delete files"],
   ["get_model_settings", "Read Mother settings"],
   ["list_provider_models", "Look up provider models"],
   ["web_search", "Web search (Browserbase)"],

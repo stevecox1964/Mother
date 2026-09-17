@@ -3,14 +3,24 @@ $projectRoot = $PSScriptRoot
 $pythonPath = Join-Path $projectRoot '.venv\Scripts\python.exe'
 $port = if ($env:MOTHER_PORT) { $env:MOTHER_PORT } else { '5010' }
 $url = "http://127.0.0.1:$port"
-try {
-    $health = Invoke-RestMethod "$url/api/health" -TimeoutSec 2
-    if ($health.name -eq 'Mother') {
-        Start-Process $url
-        Write-Host "Mother is already running at $url"
-        exit 0
+# Stop every Mother server from this folder so the new start loads current code.
+# The venv python.exe starts a child with the same command line, so both match.
+$serverCommand = "*$projectRoot\.venv\Scripts\python.exe*backend/run.py*"
+$old = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like $serverCommand })
+foreach ($process in $old) {
+    Write-Host "Stopping old Mother process $($process.ProcessId)."
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+}
+foreach ($process in $old) {
+    Wait-Process -Id $process.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+    if (Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue) {
+        throw "Could not stop old Mother process $($process.ProcessId)."
     }
-} catch { }
+}
+$listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+    throw "Port $port is still used by process $($listener.OwningProcess), which is not a Mother server from this folder. Stop it, or set MOTHER_PORT."
+}
 if (-not (Test-Path -LiteralPath $pythonPath)) {
     & python -m venv (Join-Path $projectRoot '.venv')
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python environment.' }

@@ -190,3 +190,36 @@ def test_projects_created_from_mother_do_not_inherit_its_documents(app):
     cfg = c.get(f"/api/settings?project_id={project['id']}").json
     assert cfg["context_files"] == []
     assert cfg["project_path"] == project["workspace_path"]
+
+
+def test_deleted_project_is_hidden_kept_and_restorable(app):
+    c = app.test_client()
+    project = create_project(c)
+    pid = project["id"]
+    cid = c.post(f"/api/conversations?project_id={pid}", json={"title": "Keep me"}).json["id"]
+    ids = lambda: [p["id"] for p in c.get("/api/projects").json["projects"]]
+    for builtin in ("mother", "default"):
+        assert c.delete(f"/api/projects/{builtin}", json={}).status_code == 400
+    assert c.delete(f"/api/projects/{pid}", json={}).status_code == 200
+    assert pid not in ids()
+    assert c.get(f"/api/conversations?project_id={pid}").status_code == 404
+    assert Path(project["storage_path"]).is_dir()
+    assert [p["id"] for p in c.get("/api/projects/deleted").json] == [pid]
+    assert c.delete(f"/api/projects/{pid}", json={}).status_code == 404
+    # Survives a restart, then comes back with its conversations.
+    reopened = create_app(app.extensions["store"].root).test_client()
+    assert pid not in [p["id"] for p in reopened.get("/api/projects").json["projects"]]
+    assert reopened.post(f"/api/projects/{pid}/restore", json={}).json["name"] == "Research notes"
+    assert pid in ids()
+    assert c.get("/api/projects/deleted").json == []
+    assert [r["id"] for r in c.get(f"/api/conversations?project_id={pid}").json] == [cid]
+
+
+def test_project_with_a_running_reply_cannot_be_deleted(app):
+    c = app.test_client()
+    pid = create_project(c)["id"]
+    cid = c.post(f"/api/conversations?project_id={pid}", json={"title": "Busy"}).json["id"]
+    with app.extensions["store"].connect() as db:
+        db.execute("INSERT INTO runs (id,conversation_id,status,created_at) VALUES ('r1',?,'running','now')", (cid,))
+    assert c.delete(f"/api/projects/{pid}", json={}).status_code == 400
+    assert pid in [p["id"] for p in c.get("/api/projects").json["projects"]]

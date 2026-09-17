@@ -11,7 +11,7 @@ from .providers import ProviderError
 
 
 MAX_FILE_BYTES = 200000
-WRITE_TOOLS = {"write_file", "edit_file"}
+WRITE_TOOLS = {"write_file", "edit_file", "delete_file"}
 # One lock for every check-then-write so concurrent models cannot interleave.
 WRITE_LOCK = threading.Lock()
 
@@ -26,6 +26,8 @@ FILE_TOOL_DEFINITIONS = [
      "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}, "expected_sha256": {"type": ["string", "null"]}}, "required": ["path", "content", "expected_sha256"], "additionalProperties": False}},
     {"name": "edit_file", "description": "Replace one exact, unique occurrence of old_text with new_text in a file under /project. Pass expected_sha256 from your latest read_file. Mother keeps a backup of the old version.",
      "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}, "expected_sha256": {"type": "string"}}, "required": ["path", "old_text", "new_text", "expected_sha256"], "additionalProperties": False}},
+    {"name": "delete_file", "description": "Delete one text file under /project. Pass expected_sha256 from your latest read_file. Mother keeps a backup of the deleted file.",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "expected_sha256": {"type": "string"}}, "required": ["path", "expected_sha256"], "additionalProperties": False}},
 ]
 
 
@@ -138,9 +140,13 @@ class FileTools:
                 old_raw, old_body = self.readable(mount, rel, path)
                 if expected != hashlib.sha256(old_raw).hexdigest():
                     raise ProviderError("File changed since your last read, or you did not read it. Read it again, then retry with its sha256.")
+            elif name == "delete_file":
+                raise ProviderError("File does not exist.")
             elif expected is not None:
                 raise ProviderError("File does not exist; pass null expected_sha256 to create it.")
-            if name == "write_file":
+            if name == "delete_file":
+                content = None
+            elif name == "write_file":
                 content = args.get("content")
                 if not isinstance(content, str):
                     raise ProviderError("content must be a string.")
@@ -154,15 +160,19 @@ class FileTools:
                 if count != 1:
                     raise ProviderError(f"old_text must appear exactly once; found {count}.")
                 content = old_body.replace(old_text, new_text)
-            new_raw = content.encode("utf-8")
-            if len(new_raw) > MAX_FILE_BYTES or "\x00" in content:
-                raise ProviderError("Content must be text under the 200 KB limit.")
+            if content is not None:
+                new_raw = content.encode("utf-8")
+                if len(new_raw) > MAX_FILE_BYTES or "\x00" in content:
+                    raise ProviderError("Content must be text under the 200 KB limit.")
             backup = None
             if old_raw is not None:
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
                 backup = self.backup_root / stamp / rel
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 backup.write_bytes(old_raw)
+            if content is None:
+                path.unlink()
+                return {"path": args["path"], "deleted": True, "backup": str(backup)}
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.resolve().is_relative_to(workspace.root_path(self.roots["project"])):
                 raise ProviderError("Path is outside its mount.")

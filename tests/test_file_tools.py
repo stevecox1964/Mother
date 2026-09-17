@@ -154,3 +154,21 @@ def test_every_tool_schema_is_valid_for_openai_strict_mode(tmp_path):
         schema = tool["parameters"]
         assert set(schema["required"]) == set(schema["properties"]), tool["name"]
         assert schema["additionalProperties"] is False, tool["name"]
+
+
+def test_delete_needs_current_hash_and_keeps_a_backup(project, tmp_path):
+    root, settings, tools = project
+    for args in ({"path": "/project/src/app.py"}, {"path": "/project/src/app.py", "expected_sha256": sha("stale")}):
+        with pytest.raises(ProviderError, match="changed since"):
+            tools.execute("delete_file", args)
+    assert (root / "src/app.py").exists()
+    with pytest.raises(ProviderError, match="does not exist"):
+        tools.execute("delete_file", {"path": "/project/ghost.md", "expected_sha256": sha("x")})
+    with pytest.raises(ProviderError, match="Shared folders|read/write"):
+        tools.execute("delete_file", {"path": "/docs/guide.md", "expected_sha256": sha("guide")})
+    with pytest.raises(ProviderError, match="read/write"):
+        FileTools({**settings, "project_access": "read"}, {}, backup_root=tmp_path / "b").execute(
+            "delete_file", {"path": "/project/src/app.py", "expected_sha256": sha("x = 1\ny = 2\n")})
+    done = tools.execute("delete_file", {"path": "/project/src/app.py", "expected_sha256": sha("x = 1\ny = 2\n")})
+    assert done["deleted"] and not (root / "src/app.py").exists()
+    assert [p.read_text() for p in (tmp_path / "backups").rglob("app.py")] == ["x = 1\ny = 2\n"]

@@ -312,7 +312,7 @@ class ModelTools:
                 result = self.cache[cache_key]
             self.audit.append(
                 {"name": name, "provider": arguments.get("provider"), "ok": True,
-                 **({key: result[key] for key in ("path", "sha256", "created", "backup") if key in result} if name in ("read_file", *WRITE_TOOLS) else {}),
+                 **({key: result[key] for key in ("path", "sha256", "created", "deleted", "backup") if key in result} if name in ("read_file", *WRITE_TOOLS) else {}),
                  **({key: arguments[key] for key in ("query", "url") if key in arguments} if name in WEB_TOOL_NAMES else {})}
             )
             return result
