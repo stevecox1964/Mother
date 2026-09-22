@@ -11,6 +11,7 @@ import {
   Settings2,
   Trash2,
   ChevronDown,
+  Files,
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -40,6 +41,7 @@ export function Sidebar({
   const [folded, setFolded] = useState(null);
   const pages = [
     ["settings", "Models", Users],
+    ["files", "Files", Files],
     ["project", "Setup", SlidersHorizontal],
     ["archive", "Search", Search],
   ];

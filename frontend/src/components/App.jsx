@@ -26,6 +26,7 @@ import { SystemSetup } from "./SystemSetup";
 import { ProjectModels } from "./ProjectModels";
 import { ProjectSettings } from "./ProjectSettings";
 import { Archive } from "./Archive";
+import { Files } from "./Files";
 import { Sidebar } from "./Sidebar";
 import { useConversationActions } from "./ConversationDialogs";
 import { Participants } from "./Participants";
@@ -412,6 +413,7 @@ export function App({
                       archive: "Search conversations",
                       settings: "Models in this project",
                       project: "Project setup",
+                      files: "Project files",
                       system: "System setup",
                     }[view]}
               </h1>
@@ -499,6 +501,8 @@ export function App({
             setSettings={setSettings}
             fail={fail}
           />
+        ) : view === "files" ? (
+          <Files api={api} fail={fail} />
         ) : view === "archive" ? (
           <Archive
             api={api}

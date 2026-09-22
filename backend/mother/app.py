@@ -129,6 +129,21 @@ def create_app(data_dir=None, start_search_worker=False):
             return jsonify(error="Document not found in this project."), 404
         return jsonify(projects.document(pid, key))
 
+    # Read-only browsing of the project folder for the Files page.
+    @app.get("/api/files")
+    def project_files():
+        return jsonify(workspace.list_files(projects.read(project_id())["project_path"]))
+
+    @app.get("/api/files/content")
+    def project_file_content():
+        rel = request.args.get("path", "")
+        _, manifest = workspace.snapshot(
+            {"project_path": projects.read(project_id())["project_path"],
+             "context_files": [rel], "max_context_chars": 400000},
+            include_bodies=True,
+        )
+        return jsonify(path=rel, content=manifest[0]["body"], bytes=manifest[0]["bytes"])
+
     @app.post("/api/projects")
     def projects_post():
         return jsonify(projects.create(body(), project_id())), 201

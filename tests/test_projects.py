@@ -223,3 +223,20 @@ def test_project_with_a_running_reply_cannot_be_deleted(app):
         db.execute("INSERT INTO runs (id,conversation_id,status,created_at) VALUES ('r1',?,'running','now')", (cid,))
     assert c.delete(f"/api/projects/{pid}", json={}).status_code == 400
     assert pid in [p["id"] for p in c.get("/api/projects").json["projects"]]
+
+
+def test_files_page_lists_and_reads_project_files_only(app):
+    client = app.test_client()
+    pid = create_project(client)["id"]
+    root = Path(client.get(f"/api/settings?project_id={pid}").json["project_path"])
+    (root / "src").mkdir()
+    (root / "src" / "main.py").write_bytes(b"print('hi')\n")
+    (root / ".env").write_text("SECRET=1", encoding="utf-8")
+    (root.parent / "outside.md").write_text("private", encoding="utf-8")
+    listed = client.get(f"/api/files?project_id={pid}").json
+    assert [f["path"] for f in listed["files"]] == ["src/main.py"]
+    read = client.get(f"/api/files/content?project_id={pid}&path=src/main.py").json
+    assert read["content"] == "print('hi')\n"
+    for bad in ("../outside.md", str(root.parent / "outside.md"), ".env", ""):
+        assert client.get("/api/files/content", query_string={"project_id": pid, "path": bad}).status_code == 400
+    assert client.get("/api/files?project_id=missing").status_code == 404
