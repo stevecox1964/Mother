@@ -240,3 +240,61 @@ def test_files_page_lists_and_reads_project_files_only(app):
     for bad in ("../outside.md", str(root.parent / "outside.md"), ".env", ""):
         assert client.get("/api/files/content", query_string={"project_id": pid, "path": bad}).status_code == 400
     assert client.get("/api/files?project_id=missing").status_code == 404
+
+
+def test_files_page_uploads_text_images_and_pdfs_with_backup(app):
+    import base64
+    from mother import workspace
+
+    client = app.test_client()
+    pid = create_project(client)["id"]
+    root = Path(client.get(f"/api/settings?project_id={pid}").json["project_path"])
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
+    pdf = b"%PDF-1.4\n%%EOF\n"
+
+    def upload(path, raw):
+        return client.post(f"/api/files/upload?project_id={pid}",
+                           json={"path": path, "base64": base64.b64encode(raw).decode()})
+
+    first = upload("notes/a.md", b"one\n")
+    assert first.status_code == 201 and first.json["replaced"] is False
+    assert upload("pics/p.png", png).status_code == 201
+    assert upload("doc.pdf", pdf).status_code == 201
+    assert upload("data.json", b'{"a": 1}').status_code == 201
+    assert (root / "notes" / "a.md").read_bytes() == b"one\n"
+    assert (root / "pics" / "p.png").read_bytes() == png
+
+    # Replacing keeps the old version as a backup.
+    second = upload("notes/a.md", b"two\n")
+    assert second.status_code == 201 and second.json["replaced"] is True
+    assert Path(second.json["backup"]).read_bytes() == b"one\n"
+    assert (root / "notes" / "a.md").read_bytes() == b"two\n"
+
+    # The Files page lists images and PDFs; model tools still see text only.
+    listed = [f["path"] for f in client.get(f"/api/files?project_id={pid}").json["files"]]
+    assert listed == ["data.json", "doc.pdf", "notes/a.md", "pics/p.png"]
+    assert [f["path"] for f in workspace.list_files(str(root))["files"]] == ["data.json", "notes/a.md"]
+
+    raw = client.get(f"/api/files/raw?project_id={pid}&path=pics/p.png")
+    assert raw.status_code == 200 and raw.mimetype == "image/png" and raw.data == png
+    assert client.get(f"/api/files/raw?project_id={pid}&path=doc.pdf").mimetype == "application/pdf"
+    assert client.get(f"/api/files/raw?project_id={pid}&path=notes/a.md").status_code == 400
+
+    for path, data in (
+        ("../outside.md", b"x"),
+        (str(root / "abs.md"), b"x"),
+        ("a\\b.md", b"x"),
+        ("a\bb.md", b"x"),
+        ("what?.md", b"x"),
+        (".env", b"x"),
+        ("tool.exe", b"MZ"),
+        ("fake.png", b"not a png"),
+        ("fake.pdf", png),
+        ("bad.txt", b"\xff\xfe\x00"),
+        ("big.md", b"x" * 200001),
+        ("", b"x"),
+    ):
+        assert upload(path, data).status_code == 400, path
+    assert not (root.parent / "outside.md").exists()
+    bad = client.post(f"/api/files/upload?project_id={pid}", json={"path": "x.md", "base64": "@@"})
+    assert bad.status_code == 400

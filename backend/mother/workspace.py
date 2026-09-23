@@ -1,6 +1,7 @@
 import hashlib
 import os
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 SKIP = {
     ".git",
@@ -8,6 +9,7 @@ SKIP = {
     "venv",
     "node_modules",
     "__pycache__",
+    ".pytest_cache",
     "dist",
     "build",
     "data",
@@ -44,11 +46,22 @@ EXT = {
     ".ps1",
 }
 
+# Binary files the Files page can show and upload. Models do not read them.
+MEDIA = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+}
+MAX_MEDIA_BYTES = 8 * 1024 * 1024
 
-def allowed(path):
+
+def allowed(path, media=False):
     return (
         not any(part.lower() in SKIP for part in path.parts)
-        and path.suffix.lower() in EXT
+        and (path.suffix.lower() in EXT or (media and path.suffix.lower() in MEDIA))
         and not any(
             word in path.name.lower()
             for word in (
@@ -71,7 +84,7 @@ def root_path(raw):
     return root
 
 
-def list_files(raw):
+def list_files(raw, media=False):
     root = root_path(raw)
     result = []
     visited = 0
@@ -94,10 +107,11 @@ def list_files(raw):
                 return {"files": result, "truncated": True}
             try:
                 if (
-                    allowed(rel)
+                    allowed(rel, media)
                     and not p.is_symlink()
                     and p.resolve().is_relative_to(root)
-                    and p.stat().st_size <= 200000
+                    and p.stat().st_size
+                    <= (MAX_MEDIA_BYTES if p.suffix.lower() in MEDIA else 200000)
                 ):
                     result.append({"path": rel.as_posix(), "bytes": p.stat().st_size})
             except OSError:
@@ -175,3 +189,76 @@ def model_snapshots(settings, profiles):
         )
         manifests[p["id"]] = files
     return code, manifests
+
+
+MAGIC = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".webp": (b"RIFF",),
+    ".pdf": (b"%PDF-",),
+}
+
+
+def project_file(raw, rel, media=False):
+    """Resolve a user-given relative path inside the project, or raise."""
+    root = root_path(raw)
+    parts = PurePosixPath(rel).parts if isinstance(rel, str) else ()
+    if (
+        not parts
+        or len(rel) > 1000
+        or any(c in rel for c in '\\:*?"<>|')
+        or any(ord(c) < 32 for c in rel)
+        or rel.startswith("/")
+        or ".." in parts
+        or not allowed(Path(*parts), media)
+    ):
+        raise ValueError(f"File is outside the project or excluded: {rel}")
+    path = root / Path(*parts)
+    if path.is_symlink() or not path.resolve().is_relative_to(root):
+        raise ValueError(f"File is outside the project or excluded: {rel}")
+    return root, path
+
+
+def check_upload(rel, data):
+    """Refuse content that the Files page and models could not use safely."""
+    suffix = Path(rel).suffix.lower()
+    if suffix in MEDIA:
+        if len(data) > MAX_MEDIA_BYTES:
+            raise ValueError(f"Images and PDFs must be 8 MB or smaller: {rel}")
+        if not data.startswith(MAGIC[suffix]) or (
+            suffix == ".webp" and data[8:12] != b"WEBP"
+        ):
+            raise ValueError(f"File content does not match its {suffix} name: {rel}")
+        return
+    if len(data) > 200000:
+        raise ValueError(f"Text files must be 200 KB or smaller: {rel}")
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError(f"File is not UTF-8 text: {rel}")
+    if "\x00" in text:
+        raise ValueError(f"Binary file excluded: {rel}")
+
+
+def save_upload(raw, rel, data, backup_root):
+    """Write an uploaded file. Keep a backup when it replaces a file."""
+    root, path = project_file(raw, rel, media=True)
+    check_upload(rel, data)
+    backup = None
+    if path.exists():
+        if not path.is_file():
+            raise ValueError(f"A folder already uses this name: {rel}")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup = Path(backup_root) / stamp / Path(rel)
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_bytes(path.read_bytes())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.parent.resolve().is_relative_to(root):
+        raise ValueError(f"File is outside the project or excluded: {rel}")
+    temp = path.with_name(f".{path.name}.mother-tmp")
+    temp.write_bytes(data)
+    os.replace(temp, path)
+    return {"path": rel, "bytes": len(data), "replaced": backup is not None,
+            **({"backup": str(backup)} if backup else {})}

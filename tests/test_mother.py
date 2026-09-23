@@ -235,6 +235,8 @@ def test_workspace_rejects_escape_credentials_and_over_budget(tmp_path):
     project.mkdir()
     (project / "main.py").write_text("print(42)")
     (project / ".env").write_text("PRIVATE=example")
+    (project / ".pytest_cache").mkdir()
+    (project / ".pytest_cache" / "README.md").write_text("cache")
     (tmp_path / "outside.py").write_text("outside")
     assert [f["path"] for f in workspace.list_files(str(project))["files"]] == [
         "main.py"

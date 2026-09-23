@@ -3,6 +3,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   ImagePlus,
+  Plus,
   Hash,
   Users,
   MessageCircle,
@@ -26,7 +27,7 @@ import { SystemSetup } from "./SystemSetup";
 import { ProjectModels } from "./ProjectModels";
 import { ProjectSettings } from "./ProjectSettings";
 import { Archive } from "./Archive";
-import { Files } from "./Files";
+import { ACCEPT, Files, uploadFiles } from "./Files";
 import { Sidebar } from "./Sidebar";
 import { useConversationActions } from "./ConversationDialogs";
 import { Participants } from "./Participants";
@@ -68,6 +69,7 @@ export function App({
   const [mobile, setMobile] = useState(false),
     [participantsOpen, setParticipantsOpen] = useState(false);
   const fileRef = useRef(),
+    projectFileRef = useRef(),
     timeline = useRef(),
     atBottom = useRef(true),
     selectedRef = useRef(null);
@@ -280,6 +282,17 @@ export function App({
     } finally {
       e.target.value = "";
     }
+  };
+  // Save files into the project, then name them in the draft so models know.
+  const addProjectFiles = async (e) => {
+    const input = e.target;
+    const { saved, failed } = await uploadFiles(api, [...input.files], "uploads");
+    input.value = "";
+    if (saved.length) {
+      const note = "Uploaded to project: " + saved.map((r) => r.path).join(", ");
+      setDraft((d) => (d.trim() ? d.trimEnd() + "\n" : "") + note);
+    }
+    if (failed.length) fail(Error(`Not uploaded: ${failed.join("; ")}`));
   };
   const navigate = (v) => {
     setView(v);
@@ -502,7 +515,7 @@ export function App({
             fail={fail}
           />
         ) : view === "files" ? (
-          <Files api={api} fail={fail} />
+          <Files api={api} projectId={project.id} fail={fail} />
         ) : view === "archive" ? (
           <Archive
             api={api}
@@ -851,6 +864,20 @@ export function App({
                           hidden
                           onChange={attach}
                         />
+                        <input
+                          ref={projectFileRef}
+                          type="file"
+                          accept={ACCEPT}
+                          multiple
+                          hidden
+                          onChange={addProjectFiles}
+                        />
+                        <IconButton
+                          title="Add files to project (uploads folder)"
+                          onClick={() => projectFileRef.current.click()}
+                        >
+                          <Plus size={18} />
+                        </IconButton>
                         <IconButton
                           title="Attach images"
                           onClick={() => fileRef.current.click()}

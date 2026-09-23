@@ -5,13 +5,14 @@ import os
 import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 from .store import Store, uid
 from .config import Config
 from .ensemble import Ensemble
 from .search import SearchService
 from . import workspace
+from .file_tools import WRITE_LOCK
 from .model_tools import list_models
 from .providers import ProviderError
 from .projects import Projects, PROJECT_TYPES, MOTHER_PROJECT_ID
@@ -129,10 +130,33 @@ def create_app(data_dir=None, start_search_worker=False):
             return jsonify(error="Document not found in this project."), 404
         return jsonify(projects.document(pid, key))
 
-    # Read-only browsing of the project folder for the Files page.
+    # Browsing and uploads for the Files page. Images and PDFs are listed here only.
     @app.get("/api/files")
     def project_files():
-        return jsonify(workspace.list_files(projects.read(project_id())["project_path"]))
+        return jsonify(workspace.list_files(projects.read(project_id())["project_path"], media=True))
+
+    @app.get("/api/files/raw")
+    def project_file_raw():
+        rel = request.args.get("path", "")
+        _, path = workspace.project_file(projects.read(project_id())["project_path"], rel, media=True)
+        mime = workspace.MEDIA.get(path.suffix.lower())
+        if not mime or not path.is_file() or path.stat().st_size > workspace.MAX_MEDIA_BYTES:
+            raise ValueError(f"Not an image or PDF in this project: {rel}")
+        response = send_file(path, mimetype=mime)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @app.post("/api/files/upload")
+    def project_file_upload():
+        data = body()
+        try:
+            raw = base64.b64decode(data["base64"], validate=True)
+        except (binascii.Error, KeyError, TypeError):
+            raise ValueError("Invalid file data.")
+        with WRITE_LOCK:
+            saved = workspace.save_upload(projects.read(project_id())["project_path"],
+                                          data.get("path"), raw, Path(config.root) / "backups")
+        return jsonify(saved), 201
 
     @app.get("/api/files/content")
     def project_file_content():

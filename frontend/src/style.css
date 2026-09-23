@@ -2077,6 +2077,29 @@ header {
   line-height: 1.5;
   white-space: pre;
 }
+.files-upload {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.files-upload input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.files-tree .files-upload button {
+  width: auto;
+  padding: 7px;
+}
+.files-image {
+  max-width: 100%;
+}
+.files-pdf {
+  width: 100%;
+  height: calc(100% - 32px);
+  border: 0;
+}
 @media (max-width: 700px) {
   .files-page {
     grid-template-columns: 1fr;
