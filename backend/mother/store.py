@@ -54,6 +54,12 @@ class Store:
                     run_id TEXT NOT NULL REFERENCES runs(id), model_id TEXT NOT NULL,
                     status TEXT NOT NULL, round INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(run_id,model_id));
+                CREATE TABLE IF NOT EXISTS cells (
+                    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
+                    source TEXT NOT NULL, outputs TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'new', execution_count INTEGER,
+                    collapsed INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+                    deleted_at TEXT);
             """)
             run_columns = {r[1] for r in db.execute("PRAGMA table_info(runs)")}
             if "mode" not in run_columns:
@@ -478,4 +484,58 @@ class Store:
             db.execute(
                 "UPDATE run_members SET status=? WHERE run_id=? AND status IN ('waiting','thinking')",
                 ("stopped" if status == "cancelled" else "finished", rid),
+            )
+
+    # Code cells sit in the timeline as a 'cell' event; their source and outputs change here.
+    def add_cell(self, cid, source):
+        cell_id = uid()
+        with self.lock:
+            with self.connect() as db:
+                db.execute(
+                    "INSERT INTO cells(id,conversation_id,source,updated_at) VALUES (?,?,?,?)",
+                    (cell_id, cid, source, now()),
+                )
+            self.add(cid, "cell", "You", "", {"cell_id": cell_id})
+        return self.cell(cell_id)
+
+    @staticmethod
+    def decode_cell(row):
+        row = dict(row)
+        row["outputs"] = json.loads(row["outputs"])
+        row["collapsed"] = bool(row["collapsed"])
+        return row
+
+    def cell(self, cell_id):
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM cells WHERE id=? AND deleted_at IS NULL", (cell_id,)
+            ).fetchone()
+            return self.decode_cell(row) if row else None
+
+    def cells(self, cid):
+        """Live cells in timeline order."""
+        with self.connect() as db:
+            return [
+                self.decode_cell(r)
+                for r in db.execute(
+                    """SELECT c.* FROM cells c JOIN events e ON e.conversation_id=c.conversation_id
+                    AND e.kind='cell' AND json_extract(e.metadata,'$.cell_id')=c.id
+                    WHERE c.conversation_id=? AND c.deleted_at IS NULL ORDER BY e.seq""",
+                    (cid,),
+                )
+            ]
+
+    def update_cell(self, cell_id, **fields):
+        allowed = {"source", "outputs", "status", "execution_count", "collapsed", "deleted_at"}
+        if not fields or set(fields) - allowed:
+            raise ValueError("Unknown cell field.")
+        if "outputs" in fields:
+            fields["outputs"] = json.dumps(fields["outputs"])
+        if "collapsed" in fields:
+            fields["collapsed"] = int(bool(fields["collapsed"]))
+        fields["updated_at"] = now()
+        with self.lock, self.connect() as db:
+            db.execute(
+                "UPDATE cells SET " + ",".join(f"{k}=?" for k in fields) + " WHERE id=?",
+                (*fields.values(), cell_id),
             )

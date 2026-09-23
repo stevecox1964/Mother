@@ -17,12 +17,16 @@ import {
   VolumeX,
   Volume2,
   Radio,
+  SquareCode,
+  ListRestart,
+  CircleStop,
 } from "lucide-react";
 import { api as globalApi, projectApi } from "../api";
 import { mentionRecipient } from "../mentions";
 import { saveToFile } from "../utils/saveToFile";
 import { date, cx, Avatar, IconButton } from "./ui";
 import { Post } from "./Post";
+import { Cell } from "./Cell";
 import { SystemSetup } from "./SystemSetup";
 import { ProjectModels } from "./ProjectModels";
 import { ProjectSettings } from "./ProjectSettings";
@@ -61,6 +65,7 @@ export function App({
   const [view, setView] = useState("board"),
     [events, setEvents] = useState([]),
     [runs, setRuns] = useState([]),
+    [cells, setCells] = useState([]),
     [error, setError] = useState("");
   const [draft, setDraft] = useState(""),
     [images, setImages] = useState([]),
@@ -94,6 +99,7 @@ export function App({
   useEffect(() => {
     setEvents([]);
     setRuns([]);
+    setCells([]);
     setParticipation([]);
     setConversationReady(false);
     if (!cid) return;
@@ -112,6 +118,7 @@ export function App({
               setEvents((previous) => [...previous, ...fresh]);
             }
             setRuns(data.runs);
+            setCells(data.cells);
             mergeParticipation(data.participation);
             setConversationReady(true);
           }
@@ -232,6 +239,31 @@ export function App({
       setSending(false);
     }
   };
+  // Code cells: added by the user or from a model's Python block; run only on click.
+  const updateCell = (cell) =>
+    setCells((list) =>
+      cell.deleted
+        ? list.filter((c) => c.id !== cell.id)
+        : list.some((c) => c.id === cell.id)
+          ? list.map((c) => (c.id === cell.id ? cell : c))
+          : [...list, cell],
+    );
+  const addCell = async (source = "") => {
+    try {
+      const id = cid || (await create("Code notebook"));
+      updateCell(
+        await api("/conversations/" + id + "/cells", "POST", { source }),
+      );
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const runAll = () =>
+    api("/conversations/" + cid + "/cells/run-all", "POST", {})
+      .then((data) => setCells(data.cells))
+      .catch(fail);
+  const stopCode = () =>
+    api("/conversations/" + cid + "/cells/stop", "POST", {}).catch(fail);
   const toggleSquelch = async (model) => {
     if (voiceBusy.includes(model.id)) return;
     setVoiceBusy((ids) => [...ids, model.id]);
@@ -286,10 +318,15 @@ export function App({
   // Save files into the project, then name them in the draft so models know.
   const addProjectFiles = async (e) => {
     const input = e.target;
-    const { saved, failed } = await uploadFiles(api, [...input.files], "uploads");
+    const { saved, failed } = await uploadFiles(
+      api,
+      [...input.files],
+      "uploads",
+    );
     input.value = "";
     if (saved.length) {
-      const note = "Uploaded to project: " + saved.map((r) => r.path).join(", ");
+      const note =
+        "Uploaded to project: " + saved.map((r) => r.path).join(", ");
       setDraft((d) => (d.trim() ? d.trimEnd() + "\n" : "") + note);
     }
     if (failed.length) fail(Error(`Not uploaded: ${failed.join("; ")}`));
@@ -371,9 +408,14 @@ export function App({
   const unready = (
     mode !== "direct" ? recipients : enabled.filter((m) => m.id === target)
   ).filter((m) => !m.ready);
+  const cellById = Object.fromEntries(cells.map((c) => [c.id, c]));
+  const codeBusy = cells.some(
+    (c) => c.status === "queued" || c.status === "running",
+  );
   const visible = events.filter(
     (e) =>
       e.kind !== "run" &&
+      !(e.kind === "cell" && !cellById[e.metadata.cell_id]) &&
       !(e.kind === "system" && e.content === "Discussion complete."),
   );
   return (
@@ -456,7 +498,13 @@ export function App({
                       visible
                         .map(
                           (e) =>
-                            `[${e.created_at}] ${e.author} · ${e.kind}\n${e.content}`,
+                            `[${e.created_at}] ${e.author} · ${e.kind}\n${
+                              e.kind === "cell"
+                                ? "```python\n" +
+                                  cellById[e.metadata.cell_id].source +
+                                  "\n```"
+                                : e.content
+                            }`,
                         )
                         .join("\n\n"),
                       "mother",
@@ -466,6 +514,19 @@ export function App({
                   <ArrowDownToLine size={18} />
                 </IconButton>
               )}
+              {cells.length > 0 &&
+                (codeBusy ? (
+                  <IconButton title="Stop code" onClick={stopCode}>
+                    <CircleStop size={18} />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    title="Restart and run all cells, top to bottom"
+                    onClick={runAll}
+                  >
+                    <ListRestart size={18} />
+                  </IconButton>
+                ))}
               <button
                 className={cx(
                   "participants-button",
@@ -667,9 +728,19 @@ export function App({
                           {date(visible[0].created_at)} · Conversation history
                         </span>
                       </div>
-                      {visible.map((e) => (
-                        <Post key={e.id} event={e} />
-                      ))}
+                      {visible.map((e) =>
+                        e.kind === "cell" ? (
+                          <Cell
+                            key={e.id}
+                            cell={cellById[e.metadata.cell_id]}
+                            api={api}
+                            fail={fail}
+                            onChange={updateCell}
+                          />
+                        ) : (
+                          <Post key={e.id} event={e} onMakeCell={addCell} />
+                        ),
+                      )}
                     </>
                   )}
                   {active && (
@@ -883,6 +954,12 @@ export function App({
                           onClick={() => fileRef.current.click()}
                         >
                           <ImagePlus size={18} />
+                        </IconButton>
+                        <IconButton
+                          title="Add code cell"
+                          onClick={() => addCell()}
+                        >
+                          <SquareCode size={18} />
                         </IconButton>
                         <span className="compose-hint">
                           @model for one recipient · Enter to send

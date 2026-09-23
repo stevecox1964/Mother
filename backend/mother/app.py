@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
-from .store import Store, uid
+from .store import Store, uid, now as store_now
 from .config import Config
 from .ensemble import Ensemble
 from .search import SearchService
@@ -17,6 +17,7 @@ from .model_tools import list_models
 from .providers import ProviderError
 from .projects import Projects, PROJECT_TYPES, MOTHER_PROJECT_ID
 from .mentions import recipient
+from .notebook import Notebook, recent_images, remove_images
 
 
 def create_app(data_dir=None, start_search_worker=False):
@@ -29,10 +30,11 @@ def create_app(data_dir=None, start_search_worker=False):
     projects = Projects(store, config, root)
     ensemble = Ensemble(store, config)
     search_service = SearchService(store)
+    notebook = Notebook(store)
     store.on_search_change = search_service.wake
     app.extensions.update(
         store=store, mother_config=config, ensemble=ensemble, search=search_service,
-        projects=projects,
+        projects=projects, notebook=notebook,
     )
     if start_search_worker:
         search_service.start()
@@ -240,7 +242,87 @@ def create_app(data_dir=None, start_search_worker=False):
             events=store.events(cid, after),
             runs=store.runs(cid),
             participation=store.participation(cid),
+            cells=store.cells(cid),
         )
+
+    # Code cells. Code runs only on the user's click, in the project folder.
+    def media_folder(cid):
+        pid = store.conversation_project(cid)
+        return (store.root if pid == "default" else store.project_folder(pid)) / "attachments"
+
+    def kernel_folder(cid):
+        path = Path(projects.read(store.conversation_project(cid)).get("project_path") or "")
+        return path if str(path) and path.is_dir() else media_folder(cid).parent
+
+    def require_cell(cell_id):
+        cell = store.cell(cell_id)
+        if not cell:
+            return None
+        require_conversation(cell["conversation_id"])
+        return cell
+
+    def cell_source(data, default=None):
+        source = data.get("source", default)
+        if not isinstance(source, str) or len(source) > 100000:
+            raise ValueError("Cell code must be text up to 100,000 characters.")
+        return source
+
+    @app.post("/api/conversations/<cid>/cells")
+    def cell_create(cid):
+        require_conversation(cid)
+        return jsonify(store.add_cell(cid, cell_source(body(), ""))), 201
+
+    @app.put("/api/cells/<cell_id>")
+    def cell_update(cell_id):
+        if not require_cell(cell_id):
+            return jsonify(error="Cell not found."), 404
+        data = body()
+        fields = {}
+        if "source" in data:
+            fields["source"] = cell_source(data)
+        if "collapsed" in data:
+            if type(data["collapsed"]) is not bool:
+                raise ValueError("collapsed must be true or false.")
+            fields["collapsed"] = data["collapsed"]
+        store.update_cell(cell_id, **fields)
+        return jsonify(store.cell(cell_id))
+
+    @app.delete("/api/cells/<cell_id>")
+    def cell_delete(cell_id):
+        cell = require_cell(cell_id)
+        if not cell:
+            return jsonify(error="Cell not found."), 404
+        if cell["status"] in ("queued", "running"):
+            raise ValueError("Stop the code before deleting this cell.")
+        store.update_cell(cell_id, deleted_at=store_now())
+        remove_images(media_folder(cell["conversation_id"]), cell["outputs"])
+        return jsonify(deleted=True)
+
+    @app.post("/api/cells/<cell_id>/run")
+    def cell_run(cell_id):
+        cell = require_cell(cell_id)
+        if not cell:
+            return jsonify(error="Cell not found."), 404
+        if cell["status"] in ("queued", "running"):
+            raise ValueError("This cell is already running.")
+        store.update_cell(cell_id, source=cell_source(body(), cell["source"]))
+        cid = cell["conversation_id"]
+        notebook.run(cid, cell_id, kernel_folder(cid), media_folder(cid))
+        return jsonify(store.cell(cell_id)), 202
+
+    @app.post("/api/conversations/<cid>/cells/run-all")
+    def cells_run_all(cid):
+        require_conversation(cid)
+        if any(c["status"] in ("queued", "running") for c in store.cells(cid)):
+            raise ValueError("Code is already running. Stop it first.")
+        notebook.run_all(cid, kernel_folder(cid), media_folder(cid))
+        return jsonify(cells=store.cells(cid)), 202
+
+    @app.post("/api/conversations/<cid>/cells/stop")
+    def cells_stop(cid):
+        require_conversation(cid)
+        notebook.interrupt(cid)
+        return jsonify(stopped=True)
 
     @app.put("/api/conversations/<cid>/models/<mid>/squelch")
     def squelch(cid, mid):
@@ -427,6 +509,8 @@ def create_app(data_dir=None, start_search_worker=False):
                     data_url=f"data:{mime};base64," + im["base64"],
                 )
             )
+        # Images from code cells since the last user message go to vision models.
+        cell_images = recent_images(store, cid, media_folder(cid)) if any(p["vision"] for p in selected) else []
         run = store.start_run(cid, mode, rounds, targets)
         try:
             pid = store.conversation_project(cid)
@@ -448,7 +532,7 @@ def create_app(data_dir=None, start_search_worker=False):
                     "rounds": rounds,
                 },
             )
-            ensemble.launch(run, settings, targets, code, manifest, images)
+            ensemble.launch(run, settings, targets, code, manifest, images + cell_images)
         except Exception:
             store.finish(run["id"], "failed")
             raise

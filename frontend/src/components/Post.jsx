@@ -1,8 +1,31 @@
-import { Check, Crown, Radio } from "lucide-react";
+import { Check, Crown, Radio, SquareCode } from "lucide-react";
+import { createContext, useContext } from "react";
 import ReactMarkdown from "react-markdown";
 import { time, cx, Avatar } from "./ui";
 
-export function Post({ event: e }) {
+// Python blocks in model posts can become code cells. A stable component
+// (not an inline one) so polling does not rebuild code blocks.
+const MakeCell = createContext(null);
+function CodeBlock({ children }) {
+  const onMakeCell = useContext(MakeCell);
+  const code = children?.props;
+  const python = /language-(python|py)\b/.test(code?.className || "");
+  return (
+    <div className="code-block">
+      <pre>{children}</pre>
+      {python && onMakeCell && (
+        <button
+          className="make-cell"
+          onClick={() => onMakeCell(String(code.children).replace(/\n$/, ""))}
+        >
+          <SquareCode size={13} /> Make cell
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function Post({ event: e, onMakeCell }) {
   if (e.kind === "routing")
     return (
       <div className="routing-post">
@@ -79,18 +102,21 @@ export function Post({ event: e }) {
           <time>{time(e.created_at)}</time>
         </div>
         <div className="markdown">
-          <ReactMarkdown
-            components={{
-              img: ({ alt }) => <span>[Image: {alt}]</span>,
-              a: ({ href, children }) => (
-                <a href={href} target="_blank" rel="noreferrer">
-                  {children}
-                </a>
-              ),
-            }}
-          >
-            {e.content}
-          </ReactMarkdown>
+          <MakeCell.Provider value={e.kind === "user" ? null : onMakeCell}>
+            <ReactMarkdown
+              components={{
+                pre: CodeBlock,
+                img: ({ alt }) => <span>[Image: {alt}]</span>,
+                a: ({ href, children }) => (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {e.content}
+            </ReactMarkdown>
+          </MakeCell.Provider>
         </div>
         {m.images?.length > 0 && (
           <div className="post-images">

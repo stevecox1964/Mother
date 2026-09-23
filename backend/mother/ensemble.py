@@ -6,6 +6,7 @@ from . import providers
 from .model_tools import ModelTools, settings_snapshot
 from .file_tools import WRITE_TOOLS
 from . import collaboration
+from .notebook import history_text
 
 
 class Ensemble:
@@ -75,6 +76,10 @@ class Ensemble:
                 f"You are {p['name']} ({p['id']}).\nConfigured instructions:\n{p['soul']}\n"
                 + collaboration.instruction(phase)
             )
+        system += (
+            "The history can include code cells that the user ran in Mother, with their outputs. "
+            "To suggest code for the user to run, write a ```python block; the user can turn it into a cell and run it.\n"
+        )
         runtime = (
             ModelTools(self.config, settings, can_speak, profile=p)
             if p.get("tools_enabled", True) and phase != "discovery"
@@ -269,7 +274,13 @@ class Ensemble:
         for e in reversed(self.store.events(cid)):
             if e["kind"] in ("run", "system", "routing"):
                 continue
-            chunk = f"[{e['id'][:8]} | {e['author']} | {e['kind']} | {e['created_at']}]\n{e['content']}\n"
+            content = e["content"]
+            if e["kind"] == "cell":
+                cell = self.store.cell(e["metadata"]["cell_id"])
+                if not cell:
+                    continue
+                content = history_text(cell)
+            chunk = f"[{e['id'][:8]} | {e['author']} | {e['kind']} | {e['created_at']}]\n{content}\n"
             if total + len(chunk) > 80000:
                 if not chunks:
                     chunks.append(chunk[-80000:])

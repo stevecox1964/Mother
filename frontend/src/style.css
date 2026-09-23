@@ -2110,3 +2110,116 @@ header {
     border-bottom: 1px solid var(--line);
   }
 }
+/* Code cells in the timeline */
+.cell {
+  margin: 8px 26px 8px 73px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #515160;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.cell-running,
+.cell-queued {
+  border-left-color: var(--accent);
+}
+.cell-ok {
+  border-left-color: #5fb37a;
+}
+.cell-error {
+  border-left-color: #d9534f;
+}
+.cell-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+}
+.cell-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  text-align: left;
+}
+.cell-toggle code {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+.cell-count {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.cell-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.cell-source {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: #1d1d22;
+  color: var(--ink);
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  tab-size: 4;
+}
+.cell-outputs {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px;
+  max-height: 600px;
+  overflow: auto;
+}
+.cell-outputs pre {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+.cell-outputs img {
+  display: block;
+  max-width: 100%;
+  margin: 4px 0;
+  background: #fff;
+  border-radius: 4px;
+}
+.cell-outputs .cell-stderr {
+  color: #e0b060;
+}
+.cell-outputs .cell-error {
+  color: #ff8a80;
+}
+.code-block {
+  position: relative;
+}
+.make-cell {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+@media (max-width: 700px) {
+  .cell {
+    margin: 8px 12px;
+  }
+}
